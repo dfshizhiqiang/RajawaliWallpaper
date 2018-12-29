@@ -2,6 +2,7 @@ package com.imzhiqiang.rajawaliwallpaper;
 
 import android.os.Bundle;
 import android.support.annotation.CallSuper;
+import android.support.annotation.LayoutRes;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
 import android.support.v4.app.Fragment;
@@ -14,7 +15,7 @@ import android.widget.ProgressBar;
 import org.rajawali3d.renderer.ISurfaceRenderer;
 import org.rajawali3d.view.IDisplay;
 import org.rajawali3d.view.ISurface;
-import org.rajawali3d.view.TextureView;
+import org.rajawali3d.view.SurfaceView;
 
 public abstract class SimpleFragment extends Fragment implements IDisplay {
 
@@ -26,9 +27,9 @@ public abstract class SimpleFragment extends Fragment implements IDisplay {
     @Nullable
     @Override
     public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup container, @Nullable Bundle savedInstanceState) {
-        View view = inflater.inflate(R.layout.fragment_simple, container, false);
+        View view = inflater.inflate(getLayoutId(), container, false);
         mRoot = view.findViewById(R.id.root_view);
-        mRenderSurface = view.<TextureView>findViewById(R.id.rajwali_surface);
+        mRenderSurface = view.<SurfaceView>findViewById(R.id.rajwali_surface);
         mProgressBar = view.findViewById(R.id.progress_bar);
         mProgressBar.setVisibility(View.GONE);
 
@@ -37,6 +38,11 @@ public abstract class SimpleFragment extends Fragment implements IDisplay {
         applyRenderer();
 
         return view;
+    }
+
+    @LayoutRes
+    protected int getLayoutId() {
+        return R.layout.fragment_simple;
     }
 
     @Override

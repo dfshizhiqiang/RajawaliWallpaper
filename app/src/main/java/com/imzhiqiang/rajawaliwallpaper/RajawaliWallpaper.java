@@ -10,7 +10,12 @@ public class RajawaliWallpaper extends Wallpaper {
 
     @Override
     public Engine onCreateEngine() {
-        mRenderer = new EarthRenderer(this, null);
+        String render = SpUtils.getInstance(this).getRenderer();
+        if (RenderListFragment.FLOWER.equals(render)) {
+            mRenderer = new FlowerRenderer(this, null);
+        } else {
+            mRenderer = new EarthRenderer(this, null);
+        }
         return new WallpaperEngine(getBaseContext(), mRenderer,
                 ISurface.ANTI_ALIASING_CONFIG.NONE);
     }

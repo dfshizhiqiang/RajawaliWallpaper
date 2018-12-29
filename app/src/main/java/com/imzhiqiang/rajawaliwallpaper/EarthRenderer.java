@@ -1,6 +1,8 @@
 package com.imzhiqiang.rajawaliwallpaper;
 
 import android.content.Context;
+import android.content.res.Configuration;
+import android.graphics.SurfaceTexture;
 import android.hardware.Sensor;
 import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
@@ -14,39 +16,49 @@ import org.rajawali3d.materials.Material;
 import org.rajawali3d.materials.textures.ATexture;
 import org.rajawali3d.materials.textures.Texture;
 import org.rajawali3d.math.vector.Vector3;
+import org.rajawali3d.primitives.Plane;
 import org.rajawali3d.primitives.Sphere;
 
-import java.util.Arrays;
+import javax.microedition.khronos.egl.EGLConfig;
+import javax.microedition.khronos.opengles.GL10;
 
 public class EarthRenderer extends SimpleRenderer implements SensorEventListener {
 
     private static final String TAG = "EarthRenderer";
 
     private Object3D mSphere;
-    private SensorManager mSensorManager;
-    private Sensor mAccSensor;
-    private Sensor mMagnSensor;
 
-    private float[] accValues = new float[3];
-    private float[] magnValues = new float[3];
+    private Context mContext;
+    private SensorManager mSensorManager;
+    private Sensor mSensor;
 
     public EarthRenderer(Context context, @Nullable SimpleFragment fragment) {
         super(context, fragment);
+        mContext = context;
         mSensorManager = (SensorManager) context.getSystemService(Context.SENSOR_SERVICE);
-        mAccSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        mMagnSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
+        mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
     }
 
     @Override
     protected void initScene() {
         try {
+
+            Plane backgroundPlane = new Plane(15, 15, 1, 1);
+            Material backgroundMaterial = new Material();
+            backgroundMaterial.addTexture(new Texture("backgroud", R.drawable.background));
+            backgroundMaterial.setColorInfluence(0);
+            backgroundPlane.setMaterial(backgroundMaterial);
+            backgroundPlane.setZ(-3.8);
+            getCurrentScene().addChild(backgroundPlane);
+
             Material material = new Material();
-            material.addTexture(new Texture("earthColors",
+            material.addTexture(new Texture("earth",
                     R.drawable.earthtruecolor_nasa_big));
             material.setColorInfluence(0);
             mSphere = new Sphere(1, 24, 24);
             mSphere.setMaterial(material);
             getCurrentScene().addChild(mSphere);
+
         } catch (ATexture.TextureException e) {
             e.printStackTrace();
         }
@@ -54,29 +66,63 @@ public class EarthRenderer extends SimpleRenderer implements SensorEventListener
         Log.d(TAG, "Camera initial orientation: " + getCurrentCamera().getOrientation());
         getCurrentCamera().enableLookAt();
         getCurrentCamera().setLookAt(0, 0, 0);
-        getCurrentCamera().setZ(6);
+        getCurrentCamera().setZ(7.5);
         getCurrentCamera().setOrientation(getCurrentCamera().getOrientation().inverse());
+    }
+
+    @Override
+    public void onRenderSurfaceCreated(EGLConfig config, GL10 gl, int width, int height) {
+        super.onRenderSurfaceCreated(config, gl, width, height);
+        Log.d(TAG, "onRenderSurfaceCreated: thread = " + Thread.currentThread().getName());
     }
 
     @Override
     public void onResume() {
         super.onResume();
-        mSensorManager.registerListener(this, mAccSensor,
-                SensorManager.SENSOR_DELAY_NORMAL);
-        mSensorManager.registerListener(this, mMagnSensor,
-                SensorManager.SENSOR_DELAY_NORMAL);
+        mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_FASTEST);
+        Log.d(TAG, "onResume: thread = " + Thread.currentThread().getName());
     }
 
     @Override
     public void onPause() {
         super.onPause();
         mSensorManager.unregisterListener(this);
+        Log.d(TAG, "onPause: thread = " + Thread.currentThread().getName());
     }
+
+    @Override
+    public void onRenderSurfaceDestroyed(SurfaceTexture surface) {
+        super.onRenderSurfaceDestroyed(surface);
+        Log.d(TAG, "onRenderSurfaceDestroyed: thread = " + Thread.currentThread().getName());
+    }
+
+    @Override
+    public void onRenderSurfaceSizeChanged(GL10 gl, int width, int height) {
+        super.onRenderSurfaceSizeChanged(gl, width, height);
+        Log.d(TAG, "onRenderSurfaceSizeChanged: thread = " + Thread.currentThread().getName());
+    }
+
+    private double cameraX, cameraY;
+    static double xK = 0.13;
+    static double yK = 0.13;
 
     @Override
     protected void onRender(long ellapsedRealtime, double deltaTime) {
         super.onRender(ellapsedRealtime, deltaTime);
         mSphere.rotate(Vector3.Axis.Y, 1.0);
+
+        if (dgX != 0 || dgY != 0) {
+
+            cameraX = getCurrentCamera().getX() + dgX * xK;
+            cameraY = getCurrentCamera().getY() + dgY * yK;
+
+            Log.d(TAG, String.format("onRender: cameraX = %s cameraY = %s", cameraX, cameraY));
+
+            getCurrentCamera().setX(cameraX);
+            getCurrentCamera().setY(cameraY);
+        }
+
+        getCurrentCamera().setLookAt(mSphere.getPosition());
     }
 
     @Override
@@ -89,18 +135,60 @@ public class EarthRenderer extends SimpleRenderer implements SensorEventListener
 
     }
 
+    private static final double alpha = 0.8;
+    private double[] gravity = new double[3];
+    private double[] lastGravity = new double[2];
+    private double roll, pitch;
+    private double dgX, dgY;
+
     @Override
     public void onSensorChanged(SensorEvent event) {
-        if (event.sensor.getType() == Sensor.TYPE_ACCELEROMETER) {
-            accValues = event.values.clone();
-        } else if (event.sensor.getType() == Sensor.TYPE_MAGNETIC_FIELD) {
-            magnValues = event.values.clone();
+
+        // low-pass filter
+        gravity[0] = alpha * gravity[0] + (1 - alpha) * event.values[0];
+        gravity[1] = alpha * gravity[1] + (1 - alpha) * event.values[1];
+        gravity[2] = alpha * gravity[2] + (1 - alpha) * event.values[2];
+
+        double gX = gravity[0];
+        double gY = gravity[1];
+        double gZ = gravity[2];
+
+        // normalize gravity vector at first
+        double gSum = Math.sqrt(gX * gX + gY * gY + gZ * gZ);
+        if (gSum != 0) {
+            gX /= gSum;
+            gY /= gSum;
+            gZ /= gSum;
         }
-        float[] R = new float[9];
-        float[] values = new float[3];
-        SensorManager.getRotationMatrix(R, null, accValues, magnValues);
-        SensorManager.getOrientation(R, values);
-        Log.d(TAG, "onSensorChanged: values = " + Arrays.toString(values));
+        if (gZ != 0) {
+            roll = Math.atan2(gX, gZ) * 180 / Math.PI;
+        }
+        pitch = Math.sqrt(gX * gX + gZ * gZ);
+        if (pitch != 0) {
+            pitch = Math.atan2(gY, pitch) * 180 / Math.PI;
+        }
+
+        dgX = roll - lastGravity[0];
+        dgY = pitch - lastGravity[1];
+
+        // if device orientation is close to vertical – rotation around x is almost undefined – skip!
+        if (gY > 0.99) dgX = 0;
+        // if rotation was too intensive – more than 180 degrees – skip it
+        if (dgX > 180) dgX = 0;
+        if (dgX < -180) dgX = 0;
+        if (dgY > 180) dgY = 0;
+        if (dgY < -180) dgY = 0;
+
+        if (mContext.getResources().getConfiguration().orientation == Configuration.ORIENTATION_LANDSCAPE) {
+            // landscape mode – swap dgX and dgY
+            double temp = dgY;
+            dgY = dgX;
+            dgX = temp;
+        }
+
+        lastGravity[0] = roll;
+        lastGravity[1] = pitch;
+
     }
 
     @Override
